@@ -1,0 +1,117 @@
+#!/usr/bin/env python
+#./mp3org --mode=preview --output-directory=~/Music/Albums ~/Downloads/2006\ -\ It\'s\ Never\ Been\ Like\ That/
+
+import os
+import shutil
+import sys
+
+import eyeD3
+
+class Renamer(object):
+  def __init__(self, input_dirs, output_dir):
+    self.input_dirs = self.verify_dirs(*input_dirs)
+    self.output_dir = self.verify_dirs(output_dir)[0]
+
+  def preview(self):
+    print "PREVIEW:\n"
+    for output_file in sorted(self.prepare().values()):
+      print output_file
+    print "\nRe-run with --mode=copy to copy files."
+
+  def copy(self):
+    print "COPY:\n"
+    for input_file, output_file in self.prepare().items():
+      head, tail = os.path.split(output_file)
+      if not os.path.exists(head):
+        os.makedirs(head)
+      shutil.copyfile(input_file, output_file)
+      print output_file
+    print "\nDone."
+
+  def verify_dirs(self, *dirs):
+    verified_dirs = []
+    for d in dirs:
+      d = os.path.normpath(d)
+      d = os.path.expanduser(d)
+      if not os.path.isdir(d):
+        raise RuntimeError("directory '%s' does not exist." % d)
+      verified_dirs.append(d)
+    return verified_dirs
+
+  def prepare(self):
+    rename_map = {}
+    input_files = []
+
+    # collect the files in all the directories
+    for input_dir in self.input_dirs:
+      input_files += [os.path.join(input_dir, f) for f in os.listdir(input_dir)]
+
+    # read metadata and prepare destination
+    # verify that all input files have complete ID3 V2 tags and can be renamed, or else exit
+    for input_file in input_files:
+      if eyeD3.isMp3File(input_file):
+        audiofile = eyeD3.Mp3AudioFile(input_file)
+        tag = eyeD3.Tag()
+        tag.link(input_file, eyeD3.ID3_V2)
+
+        metadata  = {}
+        frame_map = {
+          'album_artist':  'TPE2',
+          'album':         'TALB',
+          'year':          'TDRC',
+          'disc_number':   'TPOS',
+          'track_number':  'TRCK',
+          'artist':        'TPE1',
+          'title':         'TIT2',
+          'picture':       'APIC',
+        }
+        
+        for label, frame_id in frame_map.items():
+          try:
+            metadata[label] = ''
+            metadata[label] = tag.frames[frame_id][0].text
+          except IndexError, e:
+            if label not in ['disc_number']: # optional fields
+              raise e
+          except AttributeError, e:
+            if label not in ['picture']:
+              raise e
+
+        # numbers should be 1/10 or 2/2
+        for label in ['track_number', 'disc_number']:
+          try:
+            metadata[label] = int(metadata[label].split('/')[0])
+          except ValueError, e:
+            if label == 'disc_number' and metadata[label] == '':
+              pass
+            else:
+              raise RuntimeError("%s must be in x/y format." % label)
+
+        output_file = os.path.join(self.output_dir, 
+          "%(album_artist)s - %(album)s (%(year)s)" % metadata,
+          "%(disc_number)s%(track_number)02d - %(artist)s - %(title)s.mp3" % metadata
+        )
+        #if os.path.exists(output_file):
+        #  raise RuntimeError("%s already exists." % output_file)
+        rename_map[input_file] = output_file
+    return rename_map
+
+if __name__ == "__main__":
+  from optparse import OptionParser, OptionGroup
+  parser = OptionParser(usage="usage: %prog [options] input_dir [input_dir2 ...]")
+
+  parser.add_option("-o", "--output-dir", default=".", help="Output directory. Default is '.'")
+  parser.add_option("-m", "--mode", choices=["preview", "copy"], default="preview", help="'preview' or 'copy' action. Default is 'preview'")
+
+  options, args = parser.parse_args()
+  if len(args) < 1:
+    parser.print_help()
+    sys.exit(1)
+
+  try:
+    r = Renamer(input_dirs=args, output_dir=options.output_dir)
+    r.__getattribute__(options.mode)()
+    sys.exit(0)
+  except RuntimeError, e:
+    print "Error: %s" % e
+    sys.exit(1)
