@@ -115,7 +115,10 @@ class Renamer(object):
             if matches:
               metadata[label] = int(matches.groups()[0])
             else:
-              self.errors.append("Validation Error: %s tag is not in xx/yy format" % label)
+              metadata[label] = 999
+              error = "Validation Error: %s tag is not in xx/yy format" % label
+              if error not in self.errors:
+                self.errors.append(error)
 
         genre = tag.getGenre().name
         if genre not in allowed_genres:
