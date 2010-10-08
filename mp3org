@@ -2,6 +2,7 @@
 #./mp3org --mode=preview --output-directory=~/Music/Albums ~/Downloads/2006\ -\ It\'s\ Never\ Been\ Like\ That/
 
 import os
+import re
 import shutil
 import sys
 
@@ -13,8 +14,9 @@ class Renamer(object):
     self.output_dir = self.verify_dirs(output_dir)[0]
 
   def preview(self):
+    output_files = self.prepare().values().sort()
     print "PREVIEW:\n"
-    for output_file in sorted(self.prepare().values()):
+    for output_file in output_files:
       print output_file
     print "\nRe-run with --mode=copy to copy files."
 
@@ -52,9 +54,11 @@ class Renamer(object):
     rename_map = {}
     input_files = []
 
-    # collect the files in all the directories
+    # collect the files in all the directories recursively
     for input_dir in self.input_dirs:
-      input_files += [os.path.join(input_dir, f) for f in os.listdir(input_dir)]
+      for root, sud_dirs, files in os.walk(input_dir):
+        for file in files:
+          input_files.append(os.path.join(root,file))
 
     # read metadata and prepare destination
     # verify that all input files have complete ID3 V2 tags and can be renamed, or else exit
@@ -64,6 +68,7 @@ class Renamer(object):
         tag = eyeD3.Tag()
         tag.link(input_file, eyeD3.ID3_V2)
 
+        errors    = []
         metadata  = {}
         frame_map = {
           'album_artist':  'TPE2',
@@ -75,34 +80,43 @@ class Renamer(object):
           'title':         'TIT2',
           'picture':       'APIC',
         }
-        
-        for label, frame_id in frame_map.items():
-          try:
-            metadata[label] = ''
-            metadata[label] = tag.frames[frame_id][0].text
-          except IndexError, e:
-            if label not in ['disc_number']: # optional fields
-              raise e
-          except AttributeError, e:
-            if label not in ['picture']:
-              raise e
 
-        # numbers should be 1/10 or 2/2
-        for label in ['track_number', 'disc_number']:
+        # validate presence of required fields
+        for label in ['album_artist', 'album', 'year', 'track_number', 'artist', 'title', 'picture']:
           try:
-            metadata[label] = int(metadata[label].split('/')[0])
-          except ValueError, e:
-            if label == 'disc_number' and metadata[label] == '':
-              pass
+            tag.frames[frame_map[label]][0]
+          except IndexError, e:
+            error = "Validation Error: %s tag is missing" % label
+            if error not in errors:
+              errors.append(error)
+
+        # copy tag values over
+        for label in ['album_artist', 'album', 'year', 'track_number', 'disc_number', 'artist', 'title']:
+          try:
+            metadata[label] = tag.frames[frame_map[label]][0].text
+          except IndexError, e:
+            metadata[label] = 'MISSING'
+            if label == 'disc_number':
+              metadata[label] = ''
+
+        # validate format and parse number values
+        for label in ['track_number', 'disc_number']:
+          if metadata[label]:
+            matches = re.compile("^([0-9]+)/[0-9]+$").match(metadata[label])
+            if matches:
+              metadata[label] = int(matches.groups()[0])
             else:
-              raise RuntimeError("%s must be in x/y format." % label)
+              errors.append("Validation Error: %s tag is not in xx/yy format")
 
         output_file = os.path.join(self.output_dir, 
           "%(album_artist)s - %(album)s (%(year)s)" % metadata,
           "%(disc_number)s%(track_number)02d - %(artist)s - %(title)s.mp3" % metadata
         )
-        #if os.path.exists(output_file):
-        #  raise RuntimeError("%s already exists." % output_file)
+
+        if len(errors) > 0:
+          errors.append(output_file)
+          raise RuntimeError("\n" + "\n".join(errors))
+
         rename_map[input_file] = output_file
     return rename_map
 
