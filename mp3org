@@ -14,6 +14,10 @@ class Renamer(object):
     self.output_dir = self.verify_dirs(output_dir)[0]
     self.errors = []
 
+  def add_error(error):
+    if error not in self.errors:
+      self.errors.append(error)
+
   def preview(self):
     output_files = sorted(self.prepare().values())
     print "PREVIEW:\n"
@@ -88,7 +92,9 @@ class Renamer(object):
           'title':         'TIT2',
           'picture':       'APIC',
         }
-        allowed_genres = ['Electronic', 'Rock']
+        allowed_genres =  ['Pop', 'Rock', 'Jazz', 'R&B', 'Rap', 'Country', 'Blues', 'Electronic', 'Latin', 'Reggae', 'International', 'Classical']
+        allowed_genres += ['Singer/Songwriter', 'Hip Hop']
+        # Soul, Singer/Songwriter ?
 
         # validate presence of required fields
         for label in ['album_artist', 'album', 'year', 'track_number', 'artist', 'title', 'picture']:
@@ -111,9 +117,11 @@ class Renamer(object):
         # validate format and parse number values
         for label in ['track_number', 'disc_number']:
           if metadata[label]:
-            matches = re.compile("^([0-9]+)/[0-9]+$").match(metadata[label])
+            matches = re.compile("^([0-9]+)/([0-9]+)$").match(metadata[label])
             if matches:
               metadata[label] = int(matches.groups()[0])
+              if int(matches.groups()[1]) == 1:
+                self.add_error("Validation Error: %s tag should not be xx/1 format" % label)
             else:
               metadata[label] = 999
               error = "Validation Error: %s tag is not in xx/yy format" % label
