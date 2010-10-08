@@ -31,7 +31,7 @@ class Renamer(object):
       raise RuntimeError("\n" + "\n".join(self.errors))
 
     print "COPYING:\n"
-    for input_file, output_file in rename_map.items():
+    for input_file, output_file in sorted(rename_map.items()):
       head, tail = os.path.split(output_file)
       if not os.path.exists(head):
         os.makedirs(head)
@@ -88,6 +88,7 @@ class Renamer(object):
           'title':         'TIT2',
           'picture':       'APIC',
         }
+        allowed_genres = ['Electronic', 'Rock']
 
         # validate presence of required fields
         for label in ['album_artist', 'album', 'year', 'track_number', 'artist', 'title', 'picture']:
@@ -114,7 +115,13 @@ class Renamer(object):
             if matches:
               metadata[label] = int(matches.groups()[0])
             else:
-              self.errors.append("Validation Error: %s tag is not in xx/yy format")
+              self.errors.append("Validation Error: %s tag is not in xx/yy format" % label)
+
+        genre = tag.getGenre().name
+        if genre not in allowed_genres:
+          error = "Validation Error: '%s' genre is not allowed" % genre
+          if error not in self.errors:
+            self.errors.append(error)
 
         output_file = os.path.join(self.output_dir, 
           "%(album_artist)s - %(album)s (%(year)s)" % metadata,
