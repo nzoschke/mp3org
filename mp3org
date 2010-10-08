@@ -12,17 +12,26 @@ class Renamer(object):
   def __init__(self, input_dirs, output_dir):
     self.input_dirs = self.verify_dirs(*input_dirs)
     self.output_dir = self.verify_dirs(output_dir)[0]
+    self.errors = []
 
   def preview(self):
-    output_files = self.prepare().values().sort()
+    output_files = sorted(self.prepare().values())
     print "PREVIEW:\n"
     for output_file in output_files:
       print output_file
+
+    if self.errors:
+      raise RuntimeError("\n" + "\n".join(self.errors))
+
     print "\nRe-run with --mode=copy to copy files."
 
   def copy(self, cleanup=False):
-    print "COPY:\n"
-    for input_file, output_file in self.prepare().items():
+    rename_map = self.prepare()
+    if self.errors:
+      raise RuntimeError("\n" + "\n".join(self.errors))
+
+    print "COPYING:\n"
+    for input_file, output_file in rename_map.items():
       head, tail = os.path.split(output_file)
       if not os.path.exists(head):
         os.makedirs(head)
@@ -30,7 +39,7 @@ class Renamer(object):
       print output_file
 
     if cleanup:
-      print "DELETING:\n"
+      print "\nDELETING:\n"
       for input_dir in self.input_dirs:
         print input_dir
         shutil.rmtree(input_dir)
@@ -68,7 +77,6 @@ class Renamer(object):
         tag = eyeD3.Tag()
         tag.link(input_file, eyeD3.ID3_V2)
 
-        errors    = []
         metadata  = {}
         frame_map = {
           'album_artist':  'TPE2',
@@ -87,8 +95,8 @@ class Renamer(object):
             tag.frames[frame_map[label]][0]
           except IndexError, e:
             error = "Validation Error: %s tag is missing" % label
-            if error not in errors:
-              errors.append(error)
+            if error not in self.errors:
+              self.errors.append(error)
 
         # copy tag values over
         for label in ['album_artist', 'album', 'year', 'track_number', 'disc_number', 'artist', 'title']:
@@ -106,16 +114,12 @@ class Renamer(object):
             if matches:
               metadata[label] = int(matches.groups()[0])
             else:
-              errors.append("Validation Error: %s tag is not in xx/yy format")
+              self.errors.append("Validation Error: %s tag is not in xx/yy format")
 
         output_file = os.path.join(self.output_dir, 
           "%(album_artist)s - %(album)s (%(year)s)" % metadata,
           "%(disc_number)s%(track_number)02d - %(artist)s - %(title)s.mp3" % metadata
         )
-
-        if len(errors) > 0:
-          errors.append(output_file)
-          raise RuntimeError("\n" + "\n".join(errors))
 
         rename_map[input_file] = output_file
     return rename_map
@@ -137,5 +141,5 @@ if __name__ == "__main__":
     r.__getattribute__(options.mode)()
     sys.exit(0)
   except RuntimeError, e:
-    print "Error: %s" % e
+    print "\nERRORS: %s" % e
     sys.exit(1)
