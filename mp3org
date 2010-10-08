@@ -18,7 +18,7 @@ class Renamer(object):
       print output_file
     print "\nRe-run with --mode=copy to copy files."
 
-  def copy(self):
+  def copy(self, cleanup=False):
     print "COPY:\n"
     for input_file, output_file in self.prepare().items():
       head, tail = os.path.split(output_file)
@@ -26,7 +26,17 @@ class Renamer(object):
         os.makedirs(head)
       shutil.copyfile(input_file, output_file)
       print output_file
+
+    if cleanup:
+      print "DELETING:\n"
+      for input_dir in self.input_dirs:
+        print input_dir
+        shutil.rmtree(input_dir)
+
     print "\nDone."
+
+  def move(self):
+    self.copy(cleanup=True)
 
   def verify_dirs(self, *dirs):
     verified_dirs = []
@@ -101,7 +111,7 @@ if __name__ == "__main__":
   parser = OptionParser(usage="usage: %prog [options] input_dir [input_dir2 ...]")
 
   parser.add_option("-o", "--output-dir", default=".", help="Output directory. Default is '.'")
-  parser.add_option("-m", "--mode", choices=["preview", "copy"], default="preview", help="'preview' or 'copy' action. Default is 'preview'")
+  parser.add_option("-m", "--mode", choices=["preview", "copy", "move"], default="preview", help="'preview' or 'copy' action. Default is 'preview'")
 
   options, args = parser.parse_args()
   if len(args) < 1:
