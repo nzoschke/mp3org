@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import eyeD3
 
@@ -36,12 +37,16 @@ class Renamer(object):
       raise RuntimeError("\n" + "\n".join(self.errors))
 
     print "COPYING:\n"
-    for input_file, output_file in sorted(rename_map.items()):
+    for input_file, output_file in rename_map.items():
       head, tail = os.path.split(output_file)
       if not os.path.exists(head):
         os.makedirs(head)
-      shutil.copyfile(input_file, output_file)
-      print output_file
+
+      if not shutil._samefile(input_file, output_file):
+        shutil.copyfile(input_file, output_file)
+        print output_file
+      else:
+        print output_file + " (SKIPPED)"
 
     if cleanup:
       print "\nDELETING:\n"
@@ -136,12 +141,17 @@ class Renamer(object):
           if error not in self.errors:
             self.errors.append(error)
 
-        # validate artwork
-        tag.frames['APIC'][0].writeFile(path='/tmp', name='cover')
+        # save and validate artwork
+        cover_file = os.path.join('/tmp',
+          "%(album_artist)s - %(album)s (%(year)s) - cover.jpg" % metadata,
+        )
+        head, tail = os.path.split(cover_file)
+
+        tag.frames['APIC'][0].writeFile(path=head, name=tail)
         stdout, stderr = subprocess.Popen(
-          ['sips', '-g', 'pixelHeight', '-g', 'pixelWidth', '-g', 'format', '/tmp/cover'],
+          ['sips', '-g', 'pixelHeight', '-g', 'pixelWidth', '-g', 'format', cover_file],
           stdout=subprocess.PIPE,
-          stderr=subprocess.PIPE
+          stderr=subprocess.PIPE,
         ).communicate()
 
         matches = re.compile('pixelHeight: ([0-9]+)\s+pixelWidth: ([0-9]+)\s+ format: ([a-z]+)').search(stdout)
@@ -150,12 +160,16 @@ class Renamer(object):
             args = tuple([metadata['album']] + list(matches.groups()))
             self.add_error("Validation Error: '%s' artwork is not 500x500 jpeg (%s %s %s)" % args)
 
-        output_file = os.path.join(self.output_dir, 
+        rename_map[input_file] = os.path.join(self.output_dir, 
           "%(album_artist)s - %(album)s (%(year)s)" % metadata,
-          "%(disc_number)s%(track_number)02d - %(artist)s - %(title)s.mp3" % metadata
+          ("%(disc_number)s%(track_number)02d - %(artist)s - %(title)s.mp3" % metadata).replace('/', '_')
+        ).encode( "utf-8" )
+
+        rename_map[cover_file] = os.path.join(self.output_dir,
+          "%(album_artist)s - %(album)s (%(year)s)" % metadata,
+          "cover.jpg"
         )
 
-        rename_map[input_file] = output_file
     return rename_map
 
 if __name__ == "__main__":
