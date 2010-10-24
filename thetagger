@@ -74,6 +74,7 @@ class MP3(object):
     self.tag.setArtist(metadata["artist"])
     self.tag.setTitle(metadata["title"])
     self.tag.setGenre(metadata["genre"])
+    self.tag.addImage(0x03, metadata["artwork_file"]) # FRONT_COVER image type
     self.tag.update(eyeD3.ID3_V1_1 & eyeD3.ID3_V2_4)
 
 class JPG(object):
@@ -97,6 +98,9 @@ class JPG(object):
       self.format = 'jpg'
 
 class Album(object):
+  GENRES =  ['Pop', 'Rock', 'Jazz', 'R&B', 'Rap', 'Country', 'Blues', 'Electronic', 'Latin', 'Reggae', 'International', 'Classical']
+  GENRES += ['Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
+
   def __init__(self, input_dir, options):
     self.input_dir  = self.verify_dir(input_dir)
     self.output_dir = self.verify_dir(options.output_dir)
@@ -110,8 +114,9 @@ class Album(object):
     self.album_artist = self.guess_album_artist()
     self.album        = self.guess_album()
     self.year         = self.guess_year()
-    self.tracks       = self.guess_tracks()
+    self.genre        = self.guess_genre()
     self.artwork      = self.guess_artwork()
+    self.tracks       = self.guess_tracks()
 
     if options.mode == 'preview':
       self.preview()
@@ -139,9 +144,14 @@ class Album(object):
 
     if self.artwork:
       print "%s [%sx%s %s]" % ("cover.jpg".ljust(width), self.artwork.width, self.artwork.height, self.artwork.format)
+    else:
+      print "!! no cover"
     print ""
 
   def copy(self):
+    if not self.artwork:
+      raise RuntimeError('No artwork found')
+
     # create a clean temp temp_dir
     temp_dir = "/tmp/%s" % self.tracks[0]['output_dir']
     try:
@@ -149,6 +159,9 @@ class Album(object):
     except OSError, e:
       pass
     os.mkdir(temp_dir)
+
+    # copy artwork over
+    temp_file = os.path.join(temp_dir, 'cover.jpg')
 
     # copy files over to temp_dir and update tags
     for track in self.tracks:
@@ -158,7 +171,6 @@ class Album(object):
       temp_mp3.update(track)
 
     # move the tempdir to destdir
-    
     pass
 
   def verify_dir(self, d):
@@ -185,6 +197,17 @@ class Album(object):
 
   def guess_year(self):
     return self.uniform('year')
+
+  def guess_genre(self):
+    genre = self.uniform('genre')
+    if genre in self.GENRES:
+      return genre
+
+    genre_map = {'Hip-Hop': 'Hip Hop'}
+    try:
+      return genre_map[genre]
+    except KeyError:
+      raise RuntimeError("Genre %s not accepted" % genre)
 
   def uniform(self, attr):
     values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
@@ -254,7 +277,7 @@ class Album(object):
       track['year']         = self.year
       track['artist']       = titlecase(mp3.artist).strip()
       track['title']        = titlecase(mp3.title).strip()
-      track['genre']        = mp3.genre
+      track['genre']        = self.genre
 
       # disc/track nums were calculated in validation pass
       track['disc_total']   = disc_total
@@ -264,6 +287,9 @@ class Album(object):
       track['disc_track_num'] = "%02d" % track['track_num']
       if disc_total > 1:
         track['disc_track_num'] = "%d%02d" % (track['disc_num'], track['track_num'])
+
+      if self.artwork:
+        track['artwork_file'] = self.artwork.input_file
 
       track['output_dir']   = "%s - %s (%s)"    % (track['album_artist'], track['album'], track['year'])
       track['output_dir']   = track['output_dir'].replace('/', '_')
@@ -278,9 +304,8 @@ class Album(object):
         return jpg
 
     search_url = "http://www.google.com/images?as_q=%s&hl=en&biw=1050&bih=572&btnG=Google+Search&as_epq=&as_oq=&as_eq=&as_sitesearch=&safe=images&as_st=y&tbs=isch:1,isz:ex,iszw:500,iszh:500,ift:jpg"
-    search_url = search_url % urllib.quote("%s %s" % (self.album_artist, self.album))
+    search_url = search_url % urllib.quote("\"%s\" \"%s\"" % (self.album_artist, self.album))
     subprocess.Popen(["open", "/Applications/Google Chrome.app", search_url])
-    subprocess.Popen(["open", self.input_dir])
 
 if __name__ == "__main__":
   from optparse import OptionParser, OptionGroup
@@ -302,10 +327,8 @@ if __name__ == "__main__":
     parser.print_help()
     sys.exit(1)
 
-  try:
-    for d in args:
+  for d in args:
+    try:
       r = Album(d, options)
-    sys.exit(0)
-  except RuntimeError, e:
-    print "ERRORS: %s" % e
-    sys.exit(1)
+    except RuntimeError, e:
+      print "ERRORS: %s" % e
