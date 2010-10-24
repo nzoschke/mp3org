@@ -119,8 +119,9 @@ class Album(object):
     self.tracks       = self.guess_tracks()
 
     self.dest_dir = os.path.join(self.output_dir, self.tracks[0]['output_dir'])
-    if os.path.exists(self.dest_dir):
-      self.add_error("%s already exists." % self.dest_dir)
+    if options.mode != 'move':
+      if os.path.exists(self.dest_dir):
+        self.add_error("%s already exists." % self.dest_dir)
 
     if options.mode == 'preview':
       self.preview()
@@ -128,6 +129,8 @@ class Album(object):
       pass
     elif options.mode == 'copy':
       self.copy()
+    elif options.mode == 'move':
+      self.move()
 
   def add_error(self, error):
     if error not in self.errors:
@@ -161,7 +164,7 @@ class Album(object):
     if self.artwork:
       print "%s [%sx%s %s]" % ("cover.jpg".ljust(self.max_path_len), self.artwork.width, self.artwork.height, self.artwork.format)
 
-  def copy(self):
+  def copy(self, overwrite=False):
     if len(self.errors) > 0:
       self.preview() # will abort with errors
     else:
@@ -190,8 +193,18 @@ class Album(object):
 
     # move the tempdir to destdir
     print "\nMoving to %s" % self.dest_dir
-    subprocess.check_call(["rsync", "-va", temp_dir, self.output_dir])
+    del_option = overwrite and "--delete" or ""
+    subprocess.check_call(["rsync", "-va", del_option, temp_dir, self.output_dir])
     shutil.rmtree(temp_dir)
+
+    # import to iTunes
+    print "\nAdding to iTunes"
+    subprocess.check_call(["./addToITunesLibrary", self.dest_dir])
+
+  def move(self):
+    self.copy(overwrite=True)
+    print "\nRemoving %s" % self.input_dir
+    shutil.rmtree(self.input_dir)
 
   def verify_dir(self, d):
     d = os.path.normpath(d)
@@ -344,11 +357,6 @@ if __name__ == "__main__":
   group = OptionGroup(parser, "Metadata Options")
   group.add_option("--album-artist", default=None, help="Album Artist")
   group.add_option("--genre", default=None, help="Genre")
-  parser.add_option_group(group)
-
-  group = OptionGroup(parser, "File Options")
-  group.add_option("-o", "--output-dir", default=".", help="Output directory. Default is '.'")
-  group.add_option("-m", "--mode", default="preview", help="'preview' or 'copy' action. Default is 'preview'")
   parser.add_option_group(group)
 
   group = OptionGroup(parser, "File Options")
