@@ -103,7 +103,7 @@ class Album(object):
 
   def __init__(self, input_dir, options):
     self.input_dir    = self.verify_dir(input_dir)
-    self.output_dir   = self.verify_dir(options.output_dir + '/') # enforce trailing slash for rsync
+    self.output_dir   = self.verify_dir(options.output_dir)
     self.options      = options
     self.errors       = []
     self.max_path_len = 0
@@ -172,7 +172,7 @@ class Album(object):
       self.pre_preview()
 
     # create a clean temp temp_dir
-    temp_dir = "/tmp/%s" % self.tracks[0]['output_dir']
+    temp_dir = "/tmp/%s/" % self.tracks[0]['output_dir']
     try:
       shutil.rmtree(temp_dir)
     except OSError, e:
@@ -194,8 +194,10 @@ class Album(object):
 
     # move the tempdir to destdir
     print "\nMoving to %s" % self.dest_dir
-    del_option = overwrite and "--delete" or ""
-    subprocess.check_call(["rsync", "-va", del_option, temp_dir, self.output_dir])
+    args = ["rsync", "-va", temp_dir, self.dest_dir + '/']
+    if overwrite:
+      args.append('--delete')
+    subprocess.check_call(args)
     shutil.rmtree(temp_dir)
 
     # import to iTunes
@@ -206,7 +208,10 @@ class Album(object):
     self.copy(overwrite=True)
     if self.input_dir != self.dest_dir:
       print "\nRemoving %s" % self.input_dir
-      shutil.rmtree(self.input_dir)
+      try:
+        shutil.rmtree(self.input_dir)
+      except OSError, e:
+        print " Can't delete..!"
     else:
       print "\nLeaving %s... probably should user --update?" % self.input_dir
 
@@ -244,7 +249,8 @@ class Album(object):
     return year or "XXXX"
 
   def guess_artist(self):
-    return self.options.artist or titlecase(self.uniform('artist'))
+    artist = self.options.artist or self.uniform('artist')
+    return artist
 
   def guess_genre(self):
     genre_map = {
@@ -380,6 +386,7 @@ if __name__ == "__main__":
   group.add_option("--artist", default=None, help="Artist")
   group.add_option("--genre", default=None, help="Genre")
   group.add_option("--force-artwork", action="store_true", help="Allow artwork of other dimensions.")
+  group.add_option("--multiple", action="store_true", help="Apply options to multiple albums")
   parser.add_option_group(group)
 
   group = OptionGroup(parser, "File Options")
@@ -392,7 +399,7 @@ if __name__ == "__main__":
     parser.print_help()
     sys.exit(1)
 
-  if len(args) > 1 and (options.album_artist or options.album or options.genre):
+  if len(args) > 1 and (options.album_artist or options.album or options.artist or options.genre) and not options.multiple:
     print "Error: metadata applied to multiple directories. Aborting."
     sys.exit(1)
 
