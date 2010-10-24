@@ -12,10 +12,7 @@ import sys
 import tempfile
 
 # monkeypatch eyeD3
-
 import eyeD3
-eyeD3.frames.ALBUM_ARTIST_FID = 'TPE2'
-eyeD3.Tag.ALBUM_ARTIST_FID = 'TPE2'
 
 def getAlbumArtist(self):
    f = self.frames['TPE2'];
@@ -37,8 +34,10 @@ class MP3(object):
     self.album_artist = self.tag.getAlbumArtist()
     self.album        = self.tag.getAlbum()
     self.year         = self.tag.getYear()
-    self.disc_num     = self.tag.getDiscNum()
-    self.track_num    = self.tag.getTrackNum()
+    self.disc_num     = self.tag.getDiscNum()[0]
+    self.disc_total   = self.tag.getDiscNum()[1]
+    self.track_num    = self.tag.getTrackNum()[0]
+    self.track_total  = self.tag.getTrackNum()[1]
     self.artist       = self.tag.getArtist()
     self.title        = self.tag.getTitle()
     self.genre        = self.tag.getGenre().name
@@ -64,12 +63,15 @@ class Album(object):
     self.album_artist = self.guess_album_artist()
     self.album        = self.guess_album()
     self.year         = self.guess_year()
+    self.track_total  = self.guess_track_total()
+    self.disc_total   = self.guess_disc_total()
 
     self.preview()
 
   def preview(self):
     for mp3 in self.mp3s:
       print "%s - %s - %s/%s" % (self.album_artist, self.album, self.year, mp3)
+    print "%s disc(s), %s tracks" % (self.disc_total, self.track_total)
 
   def verify_dir(self, d):
     d = os.path.normpath(d)
@@ -87,6 +89,12 @@ class Album(object):
 
   def guess_year(self):
     return self.uniform('year')
+
+  def guess_track_total(self):
+    return self.uniform('track_total') or len(self.mp3s)
+
+  def guess_disc_total(self):
+    return self.uniform('disc_total') or 1
 
   def uniform(self, attr):
     values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
@@ -113,7 +121,8 @@ if __name__ == "__main__":
     sys.exit(1)
 
   try:
-    r = Album(args[0], options)
+    for d in args:
+      r = Album(d, options)
     sys.exit(0)
   except RuntimeError, e:
     print "\nERRORS: %s" % e
