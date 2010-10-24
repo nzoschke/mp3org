@@ -1,5 +1,58 @@
 #!/usr/bin/env python
-#./mp3org --mode=preview --output-directory=~/Music/Albums ~/Downloads/2006\ -\ It\'s\ Never\ Been\ Like\ That/
+"""
+WORKFLOW
+Waffles       search, download v0.torrent
+Transmission  download files
+Google        download artwork, 500x500 jpg search
+The Tagger    tag files and add artwork
+mp3org
+publish
+iTunes
+
+SHOULD BE
+
+an artist and album string
+  resolves to a torrent
+
+resolves to files
+
+contains metadata
+    track
+      metadata
+      length
+    location
+
+posts to web service
+
+data is normalized and reviewed
+  sick tool
+
+data is committed
+
+data is consumed
+  web frontend
+  collaborative
+
+  itunes export
+    read-only access to whole library
+
+    open -a iTunes files ...
+    http://hints.macworld.com/article.php?story=20080902044037850
+
+
+archive --artist "The Streets" --album "A Grand Don't Come For Free"
+ Found 'The Streets - A Grand Don't Come For Free [2004-MP3-V0(VBR)-Log].torrent', queuing
+ Found cover.jpg
+ Parsed ID3 tags, fixing
+  album artist = artist
+  
+ Album is 90 minutes, is this a multi disc set? y/n
+ 
+
+Is it a 
+
+./mp3org --mode=preview --output-directory=~/Music/Albums ~/Downloads/2006\ -\ It\'s\ Never\ Been\ Like\ That/
+"""
 
 import os
 import re
@@ -98,9 +151,12 @@ class Renamer(object):
           'title':         'TIT2',
           'picture':       'APIC',
         }
+
+        # allmusic guide genres
         allowed_genres =  ['Pop', 'Rock', 'Jazz', 'R&B', 'Rap', 'Country', 'Blues', 'Electronic', 'Latin', 'Reggae', 'International', 'Classical']
-        allowed_genres += ['Singer/Songwriter', 'Hip Hop']
-        # Soul, Singer/Songwriter ?
+
+        # my questionable additions
+        allowed_genres += ['Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
 
         # validate presence of required fields
         for label in ['album_artist', 'album', 'year', 'track_number', 'artist', 'title', 'picture']:
@@ -142,31 +198,32 @@ class Renamer(object):
             self.errors.append(error)
 
         # save and validate artwork
-        cover_file = os.path.join('/tmp',
-          "%(album_artist)s - %(album)s (%(year)s) - cover.jpg" % metadata,
-        )
-        head, tail = os.path.split(cover_file)
+        if len(tag.frames['APIC']) == 1:
+          cover_file = os.path.join('/tmp',
+            ("%(album_artist)s - %(album)s (%(year)s) - cover.jpg" % metadata).replace('/', '_'),
+          )
+          head, tail = os.path.split(cover_file)
 
-        tag.frames['APIC'][0].writeFile(path=head, name=tail)
-        stdout, stderr = subprocess.Popen(
-          ['sips', '-g', 'pixelHeight', '-g', 'pixelWidth', '-g', 'format', cover_file],
-          stdout=subprocess.PIPE,
-          stderr=subprocess.PIPE,
-        ).communicate()
+          tag.frames['APIC'][0].writeFile(path=head, name=tail)
+          stdout, stderr = subprocess.Popen(
+            ['sips', '-g', 'pixelHeight', '-g', 'pixelWidth', '-g', 'format', cover_file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+          ).communicate()
 
-        matches = re.compile('pixelHeight: ([0-9]+)\s+pixelWidth: ([0-9]+)\s+ format: ([a-z]+)').search(stdout)
-        if matches:
-          if not ('500', '500', 'jpeg') == matches.groups():
-            args = tuple([metadata['album']] + list(matches.groups()))
-            self.add_error("Validation Error: '%s' artwork is not 500x500 jpeg (%s %s %s)" % args)
+          matches = re.compile('pixelHeight: ([0-9]+)\s+pixelWidth: ([0-9]+)\s+ format: ([a-z]+)').search(stdout)
+          if matches:
+            if not ('500', '500', 'jpeg') == matches.groups():
+              args = tuple([metadata['album']] + list(matches.groups()))
+              self.add_error("Validation Error: '%s' artwork is not 500x500 jpeg (%s %s %s)" % args)
 
         rename_map[input_file] = os.path.join(self.output_dir, 
-          "%(album_artist)s - %(album)s (%(year)s)" % metadata,
+          ("%(album_artist)s - %(album)s (%(year)s)" % metadata).replace('/', '_'),
           ("%(disc_number)s%(track_number)02d - %(artist)s - %(title)s.mp3" % metadata).replace('/', '_')
         ).encode( "utf-8" )
 
         rename_map[cover_file] = os.path.join(self.output_dir,
-          "%(album_artist)s - %(album)s (%(year)s)" % metadata,
+          ("%(album_artist)s - %(album)s (%(year)s)" % metadata).replace('/', '_'),
           "cover.jpg"
         )
 
