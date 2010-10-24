@@ -99,11 +99,12 @@ class JPG(object):
 
 class Album(object):
   GENRES =  ['Pop', 'Rock', 'Jazz', 'R&B', 'Rap', 'Country', 'Blues', 'Electronic', 'Latin', 'Reggae', 'International', 'Classical']
-  GENRES += ['Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
+  GENRES += ['Folk', 'Soul', 'Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
 
   def __init__(self, input_dir, options):
     self.input_dir  = self.verify_dir(input_dir)
-    self.output_dir = self.verify_dir(options.output_dir)
+    self.options    = options
+    self.errors = []
 
     if options.mode == 'preview':
       self.pre_preview()
@@ -125,6 +126,10 @@ class Album(object):
     elif options.mode == 'copy':
       self.copy()
 
+  def add_error(self, error):
+    if error not in self.errors:
+      self.errors.append(error)
+
   def pre_preview(self):
     print "##########"
     print "## %s" % self.input_dir
@@ -144,13 +149,15 @@ class Album(object):
 
     if self.artwork:
       print "%s [%sx%s %s]" % ("cover.jpg".ljust(width), self.artwork.width, self.artwork.height, self.artwork.format)
-    else:
-      print "!! no cover"
+
+    for error in self.errors:
+      print "!! %s" % error
+
     print ""
 
   def copy(self):
-    if not self.artwork:
-      raise RuntimeError('No artwork found')
+    if len(self.errors) > 0:
+      raise RuntimeError("\n".join(errors))
 
     # create a clean temp temp_dir
     temp_dir = "/tmp/%s" % self.tracks[0]['output_dir']
@@ -199,15 +206,20 @@ class Album(object):
     return self.uniform('year')
 
   def guess_genre(self):
-    genre = self.uniform('genre')
+    genre_map = {
+      'hip-hop':      'Hip Hop',
+      'electronica':  'Electronic',
+    }
+    for genre in self.GENRES:
+      genre_map[genre.lower()] = genre
+
+    genre = self.options.genre or self.uniform('genre') or "unspecified"
+    if genre.lower() in genre_map.keys():
+      genre = genre_map[genre.lower()]
+
     if genre in self.GENRES:
       return genre
-
-    genre_map = {'Hip-Hop': 'Hip Hop'}
-    try:
-      return genre_map[genre]
-    except KeyError:
-      raise RuntimeError("Genre %s not accepted" % genre)
+    return None
 
   def uniform(self, attr):
     values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
@@ -219,6 +231,7 @@ class Album(object):
     """
     Collect the _desired_ metadata for the entire album.
     """
+    errors = []
     # first pass validates track/disk nums
     tracks = []
     dtns = {}
@@ -241,7 +254,7 @@ class Album(object):
         dtns[track['disc_track_num']] = 1
       else:
         if unsorted:
-          raise RuntimeError("No disc num present for un-sorted multi-disc set? (%s dupe)" % track['disc_track_num'])
+          errors.append("No disc num present for un-sorted multi-disc set? (%s dupe)" % track['disc_track_num'])
         else:
           disc_total += 1
           track['disc_num'] = mp3.disc_num or disc_total
@@ -279,6 +292,9 @@ class Album(object):
       track['title']        = titlecase(mp3.title).strip()
       track['genre']        = self.genre
 
+      if not self.genre:
+        self.add_error("Genre %s is invalid" % self.genre)
+
       # disc/track nums were calculated in validation pass
       track['disc_total']   = disc_total
       track['disc_num']     = track['disc_num']
@@ -290,6 +306,8 @@ class Album(object):
 
       if self.artwork:
         track['artwork_file'] = self.artwork.input_file
+      else:
+        self.add_error("No artwork found")
 
       track['output_dir']   = "%s - %s (%s)"    % (track['album_artist'], track['album'], track['year'])
       track['output_dir']   = track['output_dir'].replace('/', '_')
@@ -300,6 +318,7 @@ class Album(object):
 
   def guess_artwork(self):
     for jpg in self.jpgs:
+      print jpg.input_file
       if ('jpg', 500, 500) == (jpg.format, jpg.width, jpg.height):
         return jpg
 
@@ -331,4 +350,4 @@ if __name__ == "__main__":
     try:
       r = Album(d, options)
     except RuntimeError, e:
-      print "ERRORS: %s" % e
+      print "ERRORS: %s\n" % e
