@@ -102,12 +102,11 @@ class Album(object):
   GENRES += ['Folk', 'Soul', 'Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
 
   def __init__(self, input_dir, options):
-    self.input_dir  = self.verify_dir(input_dir)
-    self.options    = options
-    self.errors = []
-
-    if options.mode == 'preview':
-      self.pre_preview()
+    self.input_dir    = self.verify_dir(input_dir)
+    self.output_dir   = self.verify_dir(options.output_dir)
+    self.options      = options
+    self.errors       = []
+    self.max_path_len = 0
 
     self.mp3s = [MP3(f) for f in self.glob('.mp3')]
     self.jpgs = [JPG(f) for f in self.glob('.jpg', '.jpeg')]
@@ -134,33 +133,35 @@ class Album(object):
     if len(self.errors) > 0:
       raise RuntimeError("\n".join(self.errors))
 
-  def pre_preview(self):
+  def preview(self):
+    dest_dir = os.path.join(self.output_dir, self.tracks[0]['output_dir'])
+    if os.path.exists(dest_dir):
+      self.add_error("%s already exists." % dest_dir)
+
     print "##########"
     print "## %s" % self.input_dir
+    print "## => %s" % dest_dir
     print "##########"
 
-  def preview(self):
-    width = 0
     for track in self.tracks:
-      path = "%s/%s" % (track['output_dir'], track['output_file'])
-      if len(path) > width:
-        width = len(path)
-
-    for track in self.tracks:
-      path = "%s/%s" % (track['output_dir'], track['output_file'])
-      path = path.ljust(width)
-      print "%s [%02d/%02d, %02d/%02d, %s]" % (path, track['disc_num'], track['disc_total'], track['track_num'], track['track_total'], track['genre'])
-
-    if self.artwork:
-      print "%s [%sx%s %s]" % ("cover.jpg".ljust(width), self.artwork.width, self.artwork.height, self.artwork.format)
+      self.preview_track(track)
+    self.preview_artwork()
 
     self.raise_error()
-
     print ""
 
+  def preview_track(self, track):
+    path = "%s/%s" % (track['output_dir'], track['output_file'])
+    path = path.ljust(self.max_path_len)
+    print "%s [%02d/%02d, %02d/%02d, %s]" % (path, track['disc_num'], track['disc_total'], track['track_num'], track['track_total'], track['genre'])
+
+  def preview_artwork(self):
+    if self.artwork:
+      print "%s [%sx%s %s]" % ("cover.jpg".ljust(self.max_path_len), self.artwork.width, self.artwork.height, self.artwork.format)
+
   def copy(self):
-    self.pre_preview()
-    self.preview()
+    if len(self.errors) > 0:
+      self.preview() # will abort with errors
 
     # create a clean temp temp_dir
     temp_dir = "/tmp/%s" % self.tracks[0]['output_dir']
@@ -170,18 +171,21 @@ class Album(object):
       pass
     os.mkdir(temp_dir)
 
-    # copy artwork over
-    temp_file = os.path.join(temp_dir, 'cover.jpg')
-
     # copy files over to temp_dir and update tags
     for track in self.tracks:
+      self.preview_track(track)
       temp_file = os.path.join(temp_dir, track['output_file'])
       shutil.copy(track['mp3'].input_file, temp_file)
       temp_mp3 = MP3(temp_file, writable=True)
       temp_mp3.update(track)
 
+    # copy artwork over
+    self.preview_artwork()
+    temp_file = os.path.join(temp_dir, 'cover.jpg')
+    shutil.copy(self.artwork.input_file, temp_file)
+
     # move the tempdir to destdir
-    pass
+    shutil.move(temp_dir, options.output_dir)
 
   def verify_dir(self, d):
     d = os.path.normpath(d)
@@ -199,8 +203,7 @@ class Album(object):
     return matches
 
   def guess_album_artist(self):
-    album_artist = self.uniform('album_artist') or self.uniform('artist')
-    return album_artist
+    return self.options.album_artist or self.uniform('album_artist') or self.uniform('artist')
 
   def guess_album(self):
     return self.uniform('album')
@@ -224,17 +227,21 @@ class Album(object):
       self.add_error("Genre %s not allowed." % genre)
     return genre
 
-  def uniform(self, attr):
-    values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
-    if len(values) == 1 and values[0] != u'':
-      return values[0]
-    return None
+  def guess_artwork(self):
+    for jpg in self.jpgs:
+      if ('jpg', 500, 500) == (jpg.format, jpg.width, jpg.height):
+        return jpg
+
+    self.add_error("No 500x500 jpg could be found.")
+    if self.options.mode == 'preview':
+      search_url = "http://www.google.com/images?as_q=%s&hl=en&biw=1050&bih=572&btnG=Google+Search&as_epq=&as_oq=&as_eq=&as_sitesearch=&safe=images&as_st=y&tbs=isch:1,isz:ex,iszw:500,iszh:500,ift:jpg"
+      search_url = search_url % urllib.quote("\"%s\" \"%s\"" % (self.album_artist, self.album))
+      subprocess.Popen(["open", "/Applications/Google Chrome.app", search_url])
 
   def guess_tracks(self):
     """
     Collect the _desired_ metadata for the entire album.
     """
-    errors = []
     # first pass validates track/disk nums
     tracks = []
     dtns = {}
@@ -311,26 +318,24 @@ class Album(object):
       track['output_dir']   = track['output_dir'].replace('/', '_')
       track['output_file']  = "%s - %s - %s.mp3"  % (track['disc_track_num'], track['artist'], track['title'])
       track['output_file']  = track['output_file'].replace('/', '_')
+      track['output_path']  = "%s/%s" % (track['output_dir'], track['output_file'])
+
+      if len(track['output_path']) > self.max_path_len:
+        self.max_path_len = len(track['output_path'])
 
     return tracks
 
-  def guess_artwork(self):
-    for jpg in self.jpgs:
-      if ('jpg', 500, 500) == (jpg.format, jpg.width, jpg.height):
-        return jpg
-
-    self.add_error("No 500x500 jpg could be found.")
-    if self.options.mode == 'preview':
-      search_url = "http://www.google.com/images?as_q=%s&hl=en&biw=1050&bih=572&btnG=Google+Search&as_epq=&as_oq=&as_eq=&as_sitesearch=&safe=images&as_st=y&tbs=isch:1,isz:ex,iszw:500,iszh:500,ift:jpg"
-      search_url = search_url % urllib.quote("\"%s\" \"%s\"" % (self.album_artist, self.album))
-      subprocess.Popen(["open", "/Applications/Google Chrome.app", search_url])
+  def uniform(self, attr):
+    values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
+    if len(values) == 1 and values[0] != u'':
+      return values[0]
+    return None
 
 if __name__ == "__main__":
   from optparse import OptionParser, OptionGroup
   parser = OptionParser(usage="usage: %prog [options] input_album_dir")
 
   group = OptionGroup(parser, "Metadata Options")
-  group.add_option("--title-case", default=None, help="Apply Title Case to Fields?")
   group.add_option("--album-artist", default=None, help="Album Artist")
   group.add_option("--genre", default=None, help="Genre")
   parser.add_option_group(group)
