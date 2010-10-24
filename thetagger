@@ -163,15 +163,15 @@ class Album(object):
         disc_num += 1
 
       track = {}
-      track['album_artist'] = titlecase(self.album_artist)
-      track['album']        = titlecase(self.album)
+      track['album_artist'] = titlecase(self.album_artist).strip()
+      track['album']        = titlecase(self.album).strip()
       track['year']         = self.year
       track['disc_num']     = "%02d" % (mp3.disc_num or disc_num)
       track['disc_total']   = "%02d" % self.disc_total
       track['track_num']    = "%02d" % mp3.track_num
       track['track_total']  = "%02d" % self.track_total
-      track['artist']       = titlecase(mp3.artist)
-      track['title']        = titlecase(mp3.title)
+      track['artist']       = titlecase(mp3.artist).strip()
+      track['title']        = titlecase(mp3.title).strip()
       track['genre']        = mp3.genre
 
       track['disc_track_num'] = track['track_num']
@@ -179,16 +179,18 @@ class Album(object):
         track['disc_track_num'] = "%s%s" % ((mp3.disc_num or disc_num), track['track_num'])
   
       track['dirname']      = "%s - %s (%s)"    % (track['album_artist'], track['album'], track['year'])
+      track['dirname']      = track['dirname'].replace('/', '_')
       track['filename']     = "%s - %s - %s.mp3"  % (track['disc_track_num'], track['artist'], track['title'])
+      track['filename']     = track['filename'].replace('/', '_')
 
-      # insert into list sorted by disc_track_num
+      # insert into list sorted by filename
       if len(tracks) == 0:
         tracks.append(track)
         continue
-
+      
       i = 0
       t = tracks[i]
-      while t['disc_track_num'] < tracks[i]['disc_track_num']:
+      while t['filename'] < track['filename']:
         i += 1
         if i >= len(tracks):
           break
