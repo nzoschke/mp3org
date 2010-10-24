@@ -21,6 +21,12 @@ def getAlbumArtist(self):
       return u"";
 eyeD3.Tag.getAlbumArtist = getAlbumArtist
 
+def _set(self, data, frameHeader):
+  eyeD3.frames.TextFrame._set(self, data, frameHeader);
+  if self.header.id[:2] != "TD" and self.header.minorVersion >= 4:
+    print "[warning]: Invalid frame id for DateFrame: %s" % self.header.id
+eyeD3.frames.DateFrame._set = _set
+
 class MP3(object):
   def __init__(self, input_file):
     self.input_file = input_file
@@ -56,6 +62,9 @@ class Album(object):
     self.input_dir  = self.verify_dir(input_dir)
     self.output_dir = self.verify_dir(options.output_dir)
 
+    if options.mode == 'preview':
+      self.pre_preview()
+
     self.mp3s = [MP3(f) for f in self.glob('.mp3')]
     self.jpgs = [JPG(f) for f in self.glob('.jpg')]
 
@@ -67,9 +76,11 @@ class Album(object):
 
     self.preview()
 
-  def preview(self):
+  def pre_preview(self):
     print "##########"
     print "## %s" % self.input_dir
+
+  def preview(self):
     for mp3 in self.mp3s:
       print "%s - %s - %s/%s" % (self.album_artist, self.album, self.year, mp3)
     print "%s disc(s), %s tracks" % (self.disc_total, self.track_total)
@@ -121,7 +132,7 @@ if __name__ == "__main__":
 
   group = OptionGroup(parser, "File Options")  
   group.add_option("-o", "--output-dir", default=".", help="Output directory. Default is '.'")
-  #group.add_option("-m", "--mode", choices=Album.MODES, default="preview", help="'preview' or 'copy' action. Default is 'preview'")
+  group.add_option("-m", "--mode", default="preview", help="'preview' or 'copy' action. Default is 'preview'")
   parser.add_option_group(group)
 
   options, args = parser.parse_args()
