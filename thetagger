@@ -43,6 +43,8 @@ class MP3(object):
 
     self.audio_file   = eyeD3.Mp3AudioFile(input_file)
     self.tag          = self.audio_file.getTag()
+    if not self.tag:
+      raise RuntimeError("Invalid MP3 %s" % input_file)
 
     self.album_artist = self.tag.getAlbumArtist()
     self.album        = self.tag.getAlbum()
@@ -90,6 +92,9 @@ class JPG(object):
       stderr=subprocess.PIPE,
     ).communicate()
     matches = re.compile('pixelWidth: ([0-9]+)\s+pixelHeight: ([0-9]+)\s+ format: ([a-z]+)').search(stdout)
+    if not matches:
+      return
+
     (width, height, format) = matches.groups()
     self.width  = int(width)
     self.height = int(height)
@@ -98,9 +103,6 @@ class JPG(object):
       self.format = 'jpg'
 
 class Album(object):
-  GENRES =  ['Pop', 'Rock', 'Jazz', 'R&B', 'Rap', 'Country', 'Blues', 'Electronic', 'Latin', 'Reggae', 'International', 'Classical']
-  GENRES += ['Ambient', 'Folk', 'Soul', 'Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
-
   def __init__(self, input_dir, options):
     self.input_dir    = self.verify_dir(input_dir)
     self.output_dir   = self.verify_dir(options.output_dir)
@@ -123,10 +125,13 @@ class Album(object):
       self.artwork      = None
 
     self.tracks       = self.guess_tracks()
+    if len(self.tracks) == 0:
+      raise RuntimeError('No tracks in directory!')
 
     self.dest_dir = os.path.join(self.output_dir, self.tracks[0]['output_dir'])
     if options.mode != 'move':
       if os.path.exists(self.dest_dir):
+        print repr(self.dest_dir)
         self.add_error("%s already exists." % self.dest_dir)
 
     if options.mode == 'preview':
@@ -258,18 +263,24 @@ class Album(object):
     return artist
 
   def guess_genre(self):
+    genres =  ['Pop', 'Rock', 'Jazz', 'R&B', 'Rap', 'Country', 'Blues', 'Electronic', 'Latin', 'Reggae', 'International', 'Classical']
+    genres += ['Ambient', 'Folk', 'Soul', 'Singer/Songwriter', 'Hip Hop', 'Indie Rock', 'Pop Rock', 'Metal', 'Punk Rock']
+    genres += ['Alternative']
+
     genre_map = {
       'hip-hop':      'Hip Hop',
+      'hip hop/rap':  'Hip Hop',
       'electronica':  'Electronic',
+      'indie':        'Indie Rock'
     }
-    for genre in self.GENRES:
+    for genre in genres:
       genre_map[genre.lower()] = genre
 
     genre = self.options.genre or self.uniform('genre') or "UNDEFINED"
     if genre.lower() in genre_map.keys():
       genre = genre_map[genre.lower()]
 
-    if genre not in self.GENRES:
+    if genre not in genres:
       self.add_error("Genre %s not allowed." % genre)
     return genre
 
@@ -400,7 +411,7 @@ if __name__ == "__main__":
   group.add_option("--artist", default=None, help="Artist")
   group.add_option("--genre", default=None, help="Genre")
 
-  group.add_option("--find-artwork", action="store_true", help="Find artwork on Google.")
+  group.add_option("--find-artwork", action="store_true", default=True, help="Find artwork on Google.")
   group.add_option("--force-artwork", action="store_true", help="Allow artwork of other dimensions.")
   group.add_option("--multiple", action="store_true", help="Apply options to multiple albums")
   parser.add_option_group(group)
