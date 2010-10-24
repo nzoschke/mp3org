@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 
+from titlecase import titlecase
+
 # monkeypatch eyeD3
 import eyeD3
 
@@ -28,8 +30,9 @@ def _set(self, data, frameHeader):
 eyeD3.frames.DateFrame._set = _set
 
 class MP3(object):
-  def __init__(self, input_file):
+  def __init__(self, input_file, updatable=False):
     self.input_file = input_file
+    self.updatable  = updatable
     if not eyeD3.isMp3File(input_file):
       raise RuntimeError("eyeD3 can not parse %s" % input_file)
 
@@ -50,8 +53,23 @@ class MP3(object):
   def __repr__(self):
     return u"<MP3 %s>" % self.__unicode__()
 
-  def __unicode__(self):
+  def __unicode__(self, titlecase=None):
     return u"%s - %s - %s.mp3" % (self.track_num, self.artist, self.title)
+
+  def update(self, metadata):
+    if not self.updatable:
+      raise RuntimeError("%s was not set as updatable" % self.input_file)
+
+    self.tag.remove()
+    self.tag.setAlbumArtist(metadata["album_artist"])
+    self.tag.setAlbum(metadata["album"])
+    self.tag.setYear(metadata["year"])
+    self.tag.setDiscNum((metadata["disc_num"], metadata["disc_total"]))
+    self.tag.setTrackNum((metadata["track_num"], metadata["track_total"]))
+    self.tag.setArtist(metadata["artist"])
+    self.tag.setTitle(metadata["title"])
+    self.tag.setGenre(metadata["genre"])
+    self.tag.update(eyeD3.ID3_V1_1 | eyeD3.ID3_V2_4)
 
 class JPG(object):
   def __init__(self, input_file):
@@ -73,17 +91,21 @@ class Album(object):
     self.year         = self.guess_year()
     self.track_total  = self.guess_track_total()
     self.disc_total   = self.guess_disc_total()
+    self.tracks       = self.guess_tracks()
 
-    self.preview()
+    if options.mode == 'preview':
+      self.preview()
 
   def pre_preview(self):
     print "##########"
     print "## %s" % self.input_dir
+    print "##########"
 
   def preview(self):
-    for mp3 in self.mp3s:
-      print "%s - %s - %s/%s" % (self.album_artist, self.album, self.year, mp3)
+    for track in self.tracks:
+      print "%s/%s" % (track['dirname'], track['filename'])
     print "%s disc(s), %s tracks" % (self.disc_total, self.track_total)
+    print ""
 
   def verify_dir(self, d):
     d = os.path.normpath(d)
@@ -111,10 +133,18 @@ class Album(object):
     return self.uniform('year')
 
   def guess_track_total(self):
-    return self.uniform('track_total') or len(self.mp3s)
+    return int(self.uniform('track_total') or len(self.mp3s))
 
   def guess_disc_total(self):
-    return self.uniform('disc_total') or 1
+    if self.uniform('disc_total'):
+      return int(self.uniform('disc_total'))
+
+    # how many #1 tracks => disc total
+    disc_total = 0
+    for mp3 in self.mp3s:
+      if mp3.track_num == 1:
+        disc_total += 1
+    return disc_total
 
   def uniform(self, attr):
     values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
@@ -122,11 +152,57 @@ class Album(object):
       return values[0]
     return None
 
+  def guess_tracks(self):
+    """
+    Collect the _desired_ metadata for the entire album.
+    """
+    tracks = []
+    disc_num = 0
+    for mp3 in self.mp3s:
+      if mp3.track_num == 1:
+        disc_num += 1
+
+      track = {}
+      track['album_artist'] = self.album_artist
+      track['album']        = self.album
+      track['year']         = self.year
+      track['disc_num']     = "%02d" % (mp3.disc_num or disc_num)
+      track['disc_total']   = "%02d" % self.disc_total
+      track['track_num']    = "%02d" % mp3.track_num
+      track['track_total']  = "%02d" % self.track_total
+      track['artist']       = mp3.artist
+      track['title']        = mp3.title
+      track['genre']        = mp3.genre
+
+      num = track['track_num']
+      if self.disc_total > 1:
+        num = "%s%s" % ((mp3.disc_num or disc_num), track['track_num'])
+      track['dirname']      = "%s - %s - (%s)"    % (track['album_artist'], track['album'], track['year'])
+      track['filename']     = "%s - %s - %s.mp3"  % (num, track['artist'], track['title'])
+
+      # insert into list sorted by filename
+      if len(tracks) == 0:
+        tracks.append(track)
+        continue
+
+      i = 0
+      t = tracks[i]
+      while t['filename'] < track['filename']:
+        i += 1
+        try:
+          t = tracks[i]
+        except IndexError, e:
+          break
+      tracks.insert(i, track)
+
+    return tracks
+
 if __name__ == "__main__":
   from optparse import OptionParser, OptionGroup
   parser = OptionParser(usage="usage: %prog [options] input_album_dir")
 
   group = OptionGroup(parser, "Metadata Options")
+  group.add_option("--title-case", default=None, help="Apply Title Case to Fields?")
   group.add_option("--album-artist", default=None, help="Album Artist")
   parser.add_option_group(group)
 
