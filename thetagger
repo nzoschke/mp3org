@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+"""
+./albumimporter 
+"""
+
+from glob import glob
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+# monkeypatch eyeD3
+
+import eyeD3
+eyeD3.frames.ALBUM_ARTIST_FID = 'TPE2'
+eyeD3.Tag.ALBUM_ARTIST_FID = 'TPE2'
+
+def getAlbumArtist(self):
+   f = self.frames['TPE2'];
+   if f:
+      return f[0].text;
+   else:
+      return u"";
+eyeD3.Tag.getAlbumArtist = getAlbumArtist
+
+class MP3(object):
+  def __init__(self, input_file):
+    self.input_file = input_file
+    if not eyeD3.isMp3File(input_file):
+      raise RuntimeError("eyeD3 can not parse %s" % input_file)
+
+    self.audio_file = eyeD3.Mp3AudioFile(input_file)
+    self.tag        = self.audio_file.getTag()
+
+    self.album_artist = self.tag.getAlbumArtist()
+    self.album        = self.tag.getAlbum()
+    self.year         = self.tag.getYear()
+    self.disc_num     = self.tag.getDiscNum()
+    self.track_num    = self.tag.getTrackNum()
+    self.artist       = self.tag.getArtist()
+    self.title        = self.tag.getTitle()
+    self.genre        = self.tag.getGenre().name
+
+  def __repr__(self):
+    return u"<MP3 %s - %s - %s.mp3>" % (self.track_num, self.artist, self.title)
+
+  def __unicode__(self):
+    pass
+
+class JPG(object):
+  def __init__(self, input_file):
+    self.input_file = input_file
+
+class Album(object):
+  MODES = ['preview', 'import']
+  def __init__(self, input_dir, output_dir=None):
+    self.input_dir  = self.verify_dir(input_dir)
+    self.output_dir = self.verify_dir(output_dir)
+
+    self.mp3s = [MP3(f) for f in glob(os.path.join(self.input_dir, '*.mp3'))]
+    self.jpgs = [JPG(f) for f in glob(os.path.join(self.input_dir, '*.jpg'))]
+
+    print self.mp3s
+
+  def verify_dir(self, d):
+    d = os.path.normpath(d)
+    d = os.path.expanduser(d)
+    if not os.path.isdir(d):
+      raise RuntimeError("directory '%s' does not exist." % d)
+    return d
+
+if __name__ == "__main__":
+  from optparse import OptionParser, OptionGroup
+  parser = OptionParser(usage="usage: %prog [options] input_album_dir")
+
+  group = OptionGroup(parser, "Metadata Options")
+
+  group = OptionGroup(parser, "File Options")  
+  group.add_option("-o", "--output-dir", default=".", help="Output directory. Default is '.'")
+  #group.add_option("-m", "--mode", choices=Album.MODES, default="preview", help="'preview' or 'copy' action. Default is 'preview'")
+  parser.add_option_group(group)
+
+  options, args = parser.parse_args()
+  if len(args) < 1:
+    parser.print_help()
+    sys.exit(1)
+
+  try:
+    r = Album(input_dir=args[0], output_dir=options.output_dir)
+    sys.exit(0)
+  except RuntimeError, e:
+    print "\nERRORS: %s" % e
+    sys.exit(1)
