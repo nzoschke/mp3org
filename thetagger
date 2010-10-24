@@ -174,25 +174,25 @@ class Album(object):
       track['title']        = mp3.title
       track['genre']        = mp3.genre
 
-      num = track['track_num']
+      track['disc_track_num'] = track['track_num']
       if self.disc_total > 1:
-        num = "%s%s" % ((mp3.disc_num or disc_num), track['track_num'])
+        track['disc_track_num'] = "%s%s" % ((mp3.disc_num or disc_num), track['track_num'])
+  
       track['dirname']      = "%s - %s - (%s)"    % (track['album_artist'], track['album'], track['year'])
-      track['filename']     = "%s - %s - %s.mp3"  % (num, track['artist'], track['title'])
+      track['filename']     = "%s - %s - %s.mp3"  % (track['disc_track_num'], track['artist'], track['title'])
 
-      # insert into list sorted by filename
+      # insert into list sorted by disc_track_num
       if len(tracks) == 0:
         tracks.append(track)
         continue
 
       i = 0
       t = tracks[i]
-      while t['filename'] < track['filename']:
+      while t['disc_track_num'] < tracks[i]['disc_track_num']:
         i += 1
-        try:
-          t = tracks[i]
-        except IndexError, e:
+        if i >= len(tracks):
           break
+        t = tracks[i]
       tracks.insert(i, track)
 
     return tracks
