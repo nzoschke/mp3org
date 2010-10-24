@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib
 
 from titlecase import titlecase
 
@@ -40,8 +41,8 @@ class MP3(object):
     if not eyeD3.isMp3File(input_file):
       raise RuntimeError("eyeD3 can not parse %s" % input_file)
 
-    self.audio_file = eyeD3.Mp3AudioFile(input_file)
-    self.tag        = self.audio_file.getTag()
+    self.audio_file   = eyeD3.Mp3AudioFile(input_file)
+    self.tag          = self.audio_file.getTag()
 
     self.album_artist = self.tag.getAlbumArtist()
     self.album        = self.tag.getAlbum()
@@ -78,6 +79,22 @@ class MP3(object):
 class JPG(object):
   def __init__(self, input_file):
     self.input_file = input_file
+    self.width, self.height, self.format = 0, 0, 'unknown'
+    self.sips()
+
+  def sips(self):
+    stdout, stderr = subprocess.Popen(
+      ['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', '-g', 'format', self.input_file],
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE,
+    ).communicate()
+    matches = re.compile('pixelWidth: ([0-9]+)\s+pixelHeight: ([0-9]+)\s+ format: ([a-z]+)').search(stdout)
+    (width, height, format) = matches.groups()
+    self.width  = int(width)
+    self.height = int(height)
+    self.format = format
+    if self.format == 'jpeg':
+      self.format = 'jpg'
 
 class Album(object):
   def __init__(self, input_dir, options):
@@ -88,15 +105,18 @@ class Album(object):
       self.pre_preview()
 
     self.mp3s = [MP3(f) for f in self.glob('.mp3')]
-    self.jpgs = [JPG(f) for f in self.glob('.jpg')]
+    self.jpgs = [JPG(f) for f in self.glob('.jpg', '.jpeg')]
 
     self.album_artist = self.guess_album_artist()
     self.album        = self.guess_album()
     self.year         = self.guess_year()
     self.tracks       = self.guess_tracks()
+    self.artwork      = self.guess_artwork()
 
     if options.mode == 'preview':
       self.preview()
+    elif options.mode == 'verify':
+      pass
     elif options.mode == 'copy':
       self.copy()
 
@@ -116,6 +136,9 @@ class Album(object):
       path = "%s/%s" % (track['output_dir'], track['output_file'])
       path = path.ljust(width)
       print "%s [%02d/%02d, %02d/%02d, %s]" % (path, track['disc_num'], track['disc_total'], track['track_num'], track['track_total'], track['genre'])
+
+    if self.artwork:
+      print "%s [%sx%s %s]" % ("cover.jpg".ljust(width), self.artwork.width, self.artwork.height, self.artwork.format)
     print ""
 
   def copy(self):
@@ -127,7 +150,7 @@ class Album(object):
       pass
     os.mkdir(temp_dir)
 
-    # copy files over to temp_dir
+    # copy files over to temp_dir and update tags
     for track in self.tracks:
       temp_file = os.path.join(temp_dir, track['output_file'])
       shutil.copy(track['mp3'].input_file, temp_file)
@@ -135,7 +158,6 @@ class Album(object):
       temp_mp3.update(track)
 
     # move the tempdir to destdir
-    # copy the entire directory to a tempdir
     
     pass
 
@@ -146,11 +168,11 @@ class Album(object):
       raise RuntimeError("directory '%s' does not exist." % d)
     return d
 
-  def glob(self, ext):
+  def glob(self, *exts):
     matches = []
     for root, sud_dirs, files in os.walk(self.input_dir):
       for file in files:
-        if os.path.splitext(file)[1] == ext:
+        if os.path.splitext(file)[1] in exts:
           matches.append(os.path.join(root,file))
     return matches
 
@@ -249,6 +271,16 @@ class Album(object):
       track['output_file']  = track['output_file'].replace('/', '_')
 
     return tracks
+
+  def guess_artwork(self):
+    for jpg in self.jpgs:
+      if ('jpg', 500, 500) == (jpg.format, jpg.width, jpg.height):
+        return jpg
+
+    search_url = "http://www.google.com/images?as_q=%s&hl=en&biw=1050&bih=572&btnG=Google+Search&as_epq=&as_oq=&as_eq=&as_sitesearch=&safe=images&as_st=y&tbs=isch:1,isz:ex,iszw:500,iszh:500,ift:jpg"
+    search_url = search_url % urllib.quote("%s %s" % (self.album_artist, self.album))
+    subprocess.Popen(["open", "/Applications/Google Chrome.app", search_url])
+    subprocess.Popen(["open", self.input_dir])
 
 if __name__ == "__main__":
   from optparse import OptionParser, OptionGroup
