@@ -114,6 +114,7 @@ class Album(object):
     self.album_artist = self.guess_album_artist()
     self.album        = self.guess_album()
     self.year         = self.guess_year()
+    self.artist       = self.guess_artist()
     self.genre        = self.guess_genre()
     self.artwork      = self.guess_artwork()
     self.tracks       = self.guess_tracks()
@@ -203,8 +204,11 @@ class Album(object):
 
   def move(self):
     self.copy(overwrite=True)
-    print "\nRemoving %s" % self.input_dir
-    shutil.rmtree(self.input_dir)
+    if self.input_dir != self.dest_dir:
+      print "\nRemoving %s" % self.input_dir
+      shutil.rmtree(self.input_dir)
+    else:
+      print "\nLeaving %s... probably should user --update?" % self.input_dir
 
   def verify_dir(self, d):
     d = os.path.normpath(d)
@@ -222,7 +226,7 @@ class Album(object):
     return matches
 
   def guess_album_artist(self):
-    album_artist = self.options.album_artist or self.uniform('album_artist') or self.uniform('artist')
+    album_artist = self.options.album_artist or self.uniform('album_artist') or self.options.artist or self.uniform('artist')
     if not album_artist:
       self.add_error("Album artist could not be determined")
     return album_artist or "UNDEFINED"
@@ -234,7 +238,13 @@ class Album(object):
     return album or "UNDEFINED"
 
   def guess_year(self):
-    return self.uniform('year')
+    year = self.options.year or self.uniform('year')
+    if not year:
+      self.add_error("Year could not be determined")
+    return year or "XXXX"
+
+  def guess_artist(self):
+    return self.options.artist or titlecase(self.uniform('artist'))
 
   def guess_genre(self):
     genre_map = {
@@ -256,6 +266,9 @@ class Album(object):
     for jpg in self.jpgs:
       if ('jpg', 500, 500) == (jpg.format, jpg.width, jpg.height):
         return jpg
+
+    if self.options.force_artwork and len(self.jpgs) == 1:
+      return jpg
 
     self.add_error("No 500x500 jpg could be found.")
     if self.options.mode == 'preview':
@@ -323,7 +336,7 @@ class Album(object):
       track['album_artist'] = titlecase(self.album_artist).strip()
       track['album']        = titlecase(self.album).strip()
       track['year']         = self.year
-      track['artist']       = titlecase(mp3.artist).strip()
+      track['artist']       = self.artist or titlecase(mp3.artist).strip()
       track['title']        = titlecase(mp3.title).strip()
       track['genre']        = self.genre
 
@@ -363,7 +376,10 @@ if __name__ == "__main__":
   group = OptionGroup(parser, "Metadata Options")
   group.add_option("--album-artist", default=None, help="Album Artist")
   group.add_option("--album", default=None, help="Album")
+  group.add_option("--year", default=None, help="Year")
+  group.add_option("--artist", default=None, help="Artist")
   group.add_option("--genre", default=None, help="Genre")
+  group.add_option("--force-artwork", action="store_true", help="Allow artwork of other dimensions.")
   parser.add_option_group(group)
 
   group = OptionGroup(parser, "File Options")
