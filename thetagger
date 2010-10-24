@@ -116,7 +116,12 @@ class Album(object):
     self.year         = self.guess_year()
     self.artist       = self.guess_artist()
     self.genre        = self.guess_genre()
-    self.artwork      = self.guess_artwork()
+
+    if options.find_artwork:
+      self.artwork      = self.guess_artwork()
+    else:
+      self.artwork      = None
+
     self.tracks       = self.guess_tracks()
 
     self.dest_dir = os.path.join(self.output_dir, self.tracks[0]['output_dir'])
@@ -385,6 +390,8 @@ if __name__ == "__main__":
   group.add_option("--year", default=None, help="Year")
   group.add_option("--artist", default=None, help="Artist")
   group.add_option("--genre", default=None, help="Genre")
+
+  group.add_option("--find-artwork", action="store_true", help="Find artwork on Google.")
   group.add_option("--force-artwork", action="store_true", help="Allow artwork of other dimensions.")
   group.add_option("--multiple", action="store_true", help="Apply options to multiple albums")
   parser.add_option_group(group)
@@ -402,6 +409,9 @@ if __name__ == "__main__":
   if len(args) > 1 and (options.album_artist or options.album or options.artist or options.genre) and not options.multiple:
     print "Error: metadata applied to multiple directories. Aborting."
     sys.exit(1)
+
+  if len(args) > 20:
+    options.find_artwork = False
 
   performed = []
   errored   = []
