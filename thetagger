@@ -291,73 +291,82 @@ class Album(object):
     """
     Collect the _desired_ metadata for the entire album.
     """
-    # first pass validates track/disk nums
+    # collect all track and make sure everyone has a track number
     tracks = []
-    dtns = {}
-    disc_track_totals = {}
-
-    # assume a sorted set that can be assigned an increasing disc_num
-    disc_total = 1
-    unsorted = False
-
     for mp3 in self.mp3s:
-      track = {}
-      track['mp3'] = mp3
-
       if not mp3.track_num:
-        raise RuntimeError("No track num present")
+        raise RuntimeError('Track Number not present')
+      tracks.append({
+        'mp3':        mp3,
+        'track_num':  mp3.track_num,
+      })
 
-      track['disc_num'] = mp3.disc_num or disc_total
-      track['disc_track_num'] = "%02d%02d" % (track['disc_num'], mp3.track_num)
-      if track['disc_track_num'] not in dtns:
-        dtns[track['disc_track_num']] = 1
-      else:
-        if unsorted:
-          self.add_error("No disc num present for un-sorted multi-disc set? (%s dupe)" % track['disc_track_num'])
-        else:
-          disc_total += 1
-          track['disc_num'] = mp3.disc_num or disc_total
-          track['disc_track_num'] = "%02d%02d" % (track['disc_num'], mp3.track_num)
+    # is it one disc? (no repeating track_nums)
+    is_single_disc  = len(self.mp3s) == len(set([mp3.track_num for mp3 in self.mp3s]))
+    is_multi_disc   = not is_single_disc
 
-      if disc_total not in disc_track_totals:
-        disc_track_totals[disc_total] = 1
-      else:
-        disc_track_totals[disc_total] += 1
+    # are track numbers sorted?
+    is_sorted = True
+    last_track_num = -1
+    for track in tracks:
+      if track['track_num'] != last_track_num:
+         if track['track_num'] != 1:
+           is_sorted = False
+    is_unsorted = not is_sorted
 
-      # insert into list sorted by disc_track_num
-      if len(tracks) == 0:
-        tracks.append(track)
-        continue
+    if is_multi_disc and is_unsorted:
+      raise RuntimeError('Disc Number not present for multidisc')
 
-      if tracks[len(tracks)-1]['disc_track_num'] < track['disc_track_num']:
-        tracks.append(track)
-      else:
-        unsorted = True
-        i = 0
-        t = tracks[i]
-        while t['disc_track_num'] < track['disc_track_num']:
-          i += 1
-          if i >= len(tracks):
-            break
-          t = tracks[i]
-        tracks.insert(i, track)
+    # simple case: single disc
+    if is_single_disc:
+      for track in tracks:
+        track['disc_num'] = 1
 
+    # bit trickier; not necessarily a single disc but tracks are in order
+    if is_sorted:
+      disc_num = 0
+      for track in tracks:
+        if track['track_num'] == 1:
+          disc_num += 1
+        # assign the sequential value, but check with mp3 too
+        if track['mp3'].disc_num:
+          if track['mp3'].disc_num != disc_num:
+            raise RuntimeError('Sequential disc number conflicts with tags')
+        track['disc_num'] = disc_num
+
+    # sort tracks by disc/track num and count totals
+    disc_track_nums       = []
+    disc_track_num_tracks = {}
+    disc_totals = {}
+    for track in tracks:
+      disc_track_num = "%02d%02d" % (track['disc_num'], track['track_num'])
+      disc_track_nums.append(disc_track_num)
+      disc_track_num_tracks[disc_track_num] = track
+
+      if track['disc_num'] not in disc_totals.keys():
+        disc_totals[track['disc_num']] = 0
+      disc_totals[track['disc_num']] += 1
+
+    tracks  = []
+    for disc_track_num in sorted(disc_track_nums):
+      track = disc_track_num_tracks[disc_track_num]
+      tracks.append(track)
+
+    # collect all other metadata
     for track in tracks:
       mp3 = track['mp3']
-      track['album_artist'] = titlecase(self.album_artist).strip()
-      track['album']        = titlecase(self.album).strip()
-      track['year']         = self.year
+      track['album_artist'] = self.album_artist or titlecase(mp3.album_artist).strip()
+      track['album']        = self.album or titlecase(mp3.album).strip()
+      track['year']         = self.year or mp3.year
       track['artist']       = self.artist or titlecase(mp3.artist).strip()
       track['title']        = titlecase(mp3.title).strip()
       track['genre']        = self.genre
 
       # disc/track nums were calculated in validation pass
-      track['disc_total']   = disc_total
-      track['disc_num']     = track['disc_num']
-      track['track_num']    = mp3.track_num
-      track['track_total']  = disc_track_totals[track['disc_num']]
+      track['disc_total']     = len(disc_totals.keys())
+      track['track_total']    = disc_totals[track['disc_num']]
       track['disc_track_num'] = "%02d" % track['track_num']
-      if disc_total > 1:
+      if track['disc_total'] > 1:
         track['disc_track_num'] = "%d%02d" % (track['disc_num'], track['track_num'])
 
       if self.artwork:
