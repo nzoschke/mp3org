@@ -95,8 +95,6 @@ class Album(object):
     self.album_artist = self.guess_album_artist()
     self.album        = self.guess_album()
     self.year         = self.guess_year()
-    self.track_total  = self.guess_track_total()
-    self.disc_total   = self.guess_disc_total()
     self.tracks       = self.guess_tracks()
 
     if options.mode == 'preview':
@@ -168,20 +166,6 @@ class Album(object):
   def guess_year(self):
     return self.uniform('year')
 
-  def guess_track_total(self):
-    return int(self.uniform('track_total') or len(self.mp3s))
-
-  def guess_disc_total(self):
-    if self.uniform('disc_total'):
-      return int(self.uniform('disc_total'))
-
-    # how many #1 tracks => disc total
-    disc_total = 0
-    for mp3 in self.mp3s:
-      if mp3.track_num == 1:
-        disc_total += 1
-    return disc_total
-
   def uniform(self, attr):
     values = list(set([getattr(mp3, attr) for mp3 in self.mp3s]))
     if len(values) == 1 and values[0] != u'':
@@ -192,50 +176,79 @@ class Album(object):
     """
     Collect the _desired_ metadata for the entire album.
     """
+    # first pass validates track/disk nums
     tracks = []
-    disc_num = 0
+    dtns = {}
+    disc_track_totals = {}
+
+    # assume a sorted set that can be assigned an increasing disc_num
+    disc_total = 1
+    unsorted = False
+
     for mp3 in self.mp3s:
-      if mp3.track_num == 1:
-        disc_num += 1
-
       track = {}
-      track['mp3']          = mp3
+      track['mp3'] = mp3
 
+      if not mp3.track_num:
+        raise RuntimeError("No track num present")
+
+      track['disc_num'] = mp3.disc_num or disc_total
+      track['disc_track_num'] = "%02d%02d" % (track['disc_num'], mp3.track_num)
+      if track['disc_track_num'] not in dtns:
+        dtns[track['disc_track_num']] = 1
+      else:
+        if unsorted:
+          raise RuntimeError("No disc num present for un-sorted multi-disc set? (%s dupe)" % track['disc_track_num'])
+        else:
+          disc_total += 1
+          track['disc_num'] = mp3.disc_num or disc_total
+          track['disc_track_num'] = "%02d%02d" % (track['disc_num'], mp3.track_num)
+
+      if disc_total not in disc_track_totals:
+        disc_track_totals[disc_total] = 1
+      else:
+        disc_track_totals[disc_total] += 1
+
+      # insert into list sorted by disc_track_num
+      if len(tracks) == 0:
+        tracks.append(track)
+        continue
+
+      if tracks[len(tracks)-1]['disc_track_num'] < track['disc_track_num']:
+        tracks.append(track)
+      else:
+        unsorted = True
+        i = 0
+        t = tracks[i]
+        while t['disc_track_num'] < track['disc_track_num']:
+          i += 1
+          if i >= len(tracks):
+            break
+          t = tracks[i]
+        tracks.insert(i, track)
+
+    for track in tracks:
+      mp3 = track['mp3']
       track['album_artist'] = titlecase(self.album_artist).strip()
       track['album']        = titlecase(self.album).strip()
       track['year']         = self.year
-
-      track['disc_total']   = self.disc_total
-      track['disc_num']     = (self.disc_total == 1) and 1 or (mp3.disc_num or disc_num)
-
-      track['track_num']    = mp3.track_num
-      track['track_total']  = self.track_total
       track['artist']       = titlecase(mp3.artist).strip()
       track['title']        = titlecase(mp3.title).strip()
       track['genre']        = mp3.genre
 
+      # disc/track nums were calculated in validation pass
+      track['disc_total']   = disc_total
+      track['disc_num']     = track['disc_num']
+      track['track_num']    = mp3.track_num
+      track['track_total']  = disc_track_totals[track['disc_num']]
       track['disc_track_num'] = "%02d" % track['track_num']
-      if self.disc_total > 1:
-        track['disc_track_num'] = "%d%02d" % ((mp3.disc_num or disc_num), track['track_num'])
-  
+      if disc_total > 1:
+        track['disc_track_num'] = "%d%02d" % (track['disc_num'], track['track_num'])
+
       track['output_dir']   = "%s - %s (%s)"    % (track['album_artist'], track['album'], track['year'])
       track['output_dir']   = track['output_dir'].replace('/', '_')
       track['output_file']  = "%s - %s - %s.mp3"  % (track['disc_track_num'], track['artist'], track['title'])
       track['output_file']  = track['output_file'].replace('/', '_')
-
-      # insert into list sorted by filename
-      if len(tracks) == 0:
-        tracks.append(track)
-        continue
-      
-      i = 0
-      t = tracks[i]
-      while t['disc_track_num'] < track['disc_track_num']:
-        i += 1
-        if i >= len(tracks):
-          break
-        t = tracks[i]
-      tracks.insert(i, track)
 
     return tracks
 
