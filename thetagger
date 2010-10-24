@@ -23,6 +23,10 @@ def getAlbumArtist(self):
       return u"";
 eyeD3.Tag.getAlbumArtist = getAlbumArtist
 
+def setAlbumArtist(self, a):
+   self.setTextFrame('TPE2', self.strToUnicode(a));
+eyeD3.Tag.setAlbumArtist = setAlbumArtist
+
 def _set(self, data, frameHeader):
   eyeD3.frames.TextFrame._set(self, data, frameHeader);
   if self.header.id[:2] != "TD" and self.header.minorVersion >= 4:
@@ -30,9 +34,9 @@ def _set(self, data, frameHeader):
 eyeD3.frames.DateFrame._set = _set
 
 class MP3(object):
-  def __init__(self, input_file, updatable=False):
+  def __init__(self, input_file, writable=False):
     self.input_file = input_file
-    self.updatable  = updatable
+    self.writable   = writable
     if not eyeD3.isMp3File(input_file):
       raise RuntimeError("eyeD3 can not parse %s" % input_file)
 
@@ -57,19 +61,21 @@ class MP3(object):
     return u"%s - %s - %s.mp3" % (self.track_num, self.artist, self.title)
 
   def update(self, metadata):
-    if not self.updatable:
-      raise RuntimeError("%s was not set as updatable" % self.input_file)
+    if not self.writable:
+      raise RuntimeError("%s was not set as writable" % self.input_file)
 
+    print metadata
     self.tag.remove()
     self.tag.setAlbumArtist(metadata["album_artist"])
     self.tag.setAlbum(metadata["album"])
-    self.tag.setYear(metadata["year"])
+    self.tag.setDate(metadata["year"])
     self.tag.setDiscNum((metadata["disc_num"], metadata["disc_total"]))
     self.tag.setTrackNum((metadata["track_num"], metadata["track_total"]))
     self.tag.setArtist(metadata["artist"])
     self.tag.setTitle(metadata["title"])
     self.tag.setGenre(metadata["genre"])
-    self.tag.update(eyeD3.ID3_V1_1 | eyeD3.ID3_V2_4)
+    self.tag.update(eyeD3.ID3_V2_4)
+    #self.tag.update(eyeD3.ID3_V1_1 | eyeD3.ID3_V2_4)
 
 class JPG(object):
   def __init__(self, input_file):
@@ -95,6 +101,8 @@ class Album(object):
 
     if options.mode == 'preview':
       self.preview()
+    elif options.mode == 'copy':
+      self.copy()
 
   def pre_preview(self):
     print "##########"
@@ -102,10 +110,38 @@ class Album(object):
     print "##########"
 
   def preview(self):
+    width = 0
     for track in self.tracks:
-      print "%s/%s" % (track['dirname'], track['filename'])
-    print "%s disc(s), %s tracks" % (self.disc_total, self.track_total)
+      path = "%s/%s" % (track['output_dir'], track['output_file'])
+      if len(path) > width:
+        width = len(path)
+
+    for track in self.tracks:
+      path = "%s/%s" % (track['output_dir'], track['output_file'])
+      path = path.ljust(width)
+      print "%s [%02d/%02d, %02d/%02d, %s]" % (path, track['disc_num'], track['disc_total'], track['track_num'], track['track_total'], track['genre'])
     print ""
+
+  def copy(self):
+    # create a clean temp temp_dir
+    temp_dir = "/tmp/%s" % self.tracks[0]['output_dir']
+    try:
+      shutil.rmtree(temp_dir)
+    except OSError, e:
+      pass
+    os.mkdir(temp_dir)
+
+    # copy files over to temp_dir
+    for track in self.tracks:
+      temp_file = os.path.join(temp_dir, track['output_file'])
+      shutil.copy(track['mp3'].input_file, temp_file)
+      temp_mp3 = MP3(temp_file, writable=True)
+      temp_mp3.update(track)
+
+    # move the tempdir to destdir
+    # copy the entire directory to a tempdir
+    
+    pass
 
   def verify_dir(self, d):
     d = os.path.normpath(d)
@@ -163,25 +199,29 @@ class Album(object):
         disc_num += 1
 
       track = {}
+      track['mp3']          = mp3
+
       track['album_artist'] = titlecase(self.album_artist).strip()
       track['album']        = titlecase(self.album).strip()
       track['year']         = self.year
-      track['disc_num']     = "%02d" % (mp3.disc_num or disc_num)
-      track['disc_total']   = "%02d" % self.disc_total
-      track['track_num']    = "%02d" % mp3.track_num
-      track['track_total']  = "%02d" % self.track_total
+
+      track['disc_total']   = self.disc_total
+      track['disc_num']     = (self.disc_total == 1) and 1 or (mp3.disc_num or disc_num)
+
+      track['track_num']    = mp3.track_num
+      track['track_total']  = self.track_total
       track['artist']       = titlecase(mp3.artist).strip()
       track['title']        = titlecase(mp3.title).strip()
       track['genre']        = mp3.genre
 
-      track['disc_track_num'] = track['track_num']
+      track['disc_track_num'] = "%02d" % track['track_num']
       if self.disc_total > 1:
-        track['disc_track_num'] = "%s%s" % ((mp3.disc_num or disc_num), track['track_num'])
+        track['disc_track_num'] = "%d%02d" % ((mp3.disc_num or disc_num), track['track_num'])
   
-      track['dirname']      = "%s - %s (%s)"    % (track['album_artist'], track['album'], track['year'])
-      track['dirname']      = track['dirname'].replace('/', '_')
-      track['filename']     = "%s - %s - %s.mp3"  % (track['disc_track_num'], track['artist'], track['title'])
-      track['filename']     = track['filename'].replace('/', '_')
+      track['output_dir']   = "%s - %s (%s)"    % (track['album_artist'], track['album'], track['year'])
+      track['output_dir']   = track['output_dir'].replace('/', '_')
+      track['output_file']  = "%s - %s - %s.mp3"  % (track['disc_track_num'], track['artist'], track['title'])
+      track['output_file']  = track['output_file'].replace('/', '_')
 
       # insert into list sorted by filename
       if len(tracks) == 0:
@@ -224,5 +264,5 @@ if __name__ == "__main__":
       r = Album(d, options)
     sys.exit(0)
   except RuntimeError, e:
-    print "\nERRORS: %s" % e
+    print "ERRORS: %s" % e
     sys.exit(1)
