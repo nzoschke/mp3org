@@ -3,7 +3,6 @@
 ./albumimporter 
 """
 
-from glob import glob
 import os
 import re
 import shutil
@@ -40,7 +39,7 @@ class MP3(object):
     self.track_total  = self.tag.getTrackNum()[1]
     self.artist       = self.tag.getArtist()
     self.title        = self.tag.getTitle()
-    self.genre        = self.tag.getGenre().name
+    self.genre        = self.tag.getGenre() and self.tag.getGenre().name or None
 
   def __repr__(self):
     return u"<MP3 %s>" % self.__unicode__()
@@ -57,8 +56,8 @@ class Album(object):
     self.input_dir  = self.verify_dir(input_dir)
     self.output_dir = self.verify_dir(options.output_dir)
 
-    self.mp3s = [MP3(f) for f in glob(os.path.join(self.input_dir, '*.mp3'))]
-    self.jpgs = [JPG(f) for f in glob(os.path.join(self.input_dir, '*.jpg'))]
+    self.mp3s = [MP3(f) for f in self.glob('.mp3')]
+    self.jpgs = [JPG(f) for f in self.glob('.jpg')]
 
     self.album_artist = self.guess_album_artist()
     self.album        = self.guess_album()
@@ -69,6 +68,8 @@ class Album(object):
     self.preview()
 
   def preview(self):
+    print "##########"
+    print "## %s" % self.input_dir
     for mp3 in self.mp3s:
       print "%s - %s - %s/%s" % (self.album_artist, self.album, self.year, mp3)
     print "%s disc(s), %s tracks" % (self.disc_total, self.track_total)
@@ -79,6 +80,14 @@ class Album(object):
     if not os.path.isdir(d):
       raise RuntimeError("directory '%s' does not exist." % d)
     return d
+
+  def glob(self, ext):
+    matches = []
+    for root, sud_dirs, files in os.walk(self.input_dir):
+      for file in files:
+        if os.path.splitext(file)[1] == ext:
+          matches.append(os.path.join(root,file))
+    return matches
 
   def guess_album_artist(self):
     album_artist = self.uniform('album_artist') or self.uniform('artist')
